@@ -12,7 +12,11 @@ struct HvMachine;
    its own HV_BLOCK_TSO form, whose memory accesses keep TSO's order (core/translate.c). */
 #define HV_AIDR_TSO (1ull << 9)
 #define HV_ACTLR_TSO (1ull << 1)
-#define HV_AIDR HV_AIDR_TSO
+/* macOS 15.6.1's exec_mach_imgact accepts an x86_64 Mach-O only when AIDR_EL1 has bits 9 and 19, and either bits 20
+   and 23 or ID_AA64MMFR1_EL1.AFP (read from the 24G90 VirtualMac kernelcache, 2026-11-15). Bits 20 and 23 would mean
+   emulating Apple's own float-mode registers; FEAT_AFP is real ARM and passes through to the host (core/sysreg.c). */
+#define HV_AIDR_X86 (1ull << 19)
+#define HV_AIDR (HV_AIDR_TSO | HV_AIDR_X86)
 
 enum HvHaltReason {
     HV_HALT_NONE, HV_HALT_SHUTDOWN, HV_HALT_RESET, HV_HALT_HOST, HV_HALT_PANIC,
