@@ -885,6 +885,9 @@ static void translate_branch_reg(Emit *e, uint32_t insn, uint64_t pc) {
    for x18/x28 operands. A miss goes out of line to hv_mem_emulate, which does
    the whole instruction (writeback included) and comes back to the join. */
 static void translate_mem(Emit *e, uint32_t insn, uint64_t pc);
+#define DMB_ISH   0xd5033bbfu
+#define DMB_ISHLD 0xd50339bfu
+#define DMB_ISHST 0xd5033abfu
 static void put_load_field(Emit *e, int rt, uint32_t off);
 static void put_store_field(Emit *e, int rt, uint32_t off);
 
@@ -955,8 +958,13 @@ static void translate_mem(Emit *e, uint32_t insn, uint64_t pc) {
     }
     static int c_excl = -1; /* HV_C_EXCL: keep every exclusive on the C path (debugging) */
     if (c_excl < 0) c_excl = getenv("HV_C_EXCL") != NULL;
+    /* Rosetta's x86 code (HV_BLOCK_TSO): x86 keeps loads in order with loads and stores, and stores with
+       stores; Apple CPUs do that in hardware for such threads, here barriers do it around each access. */
+    int tso = (e->flags & HV_BLOCK_TSO) != 0;
     if (op.kind == HV_MEM_EXCL && op.bytes == 1u << op.size && !e->slow_mem && !c_excl) {
+        if (tso) put(e, DMB_ISH);
         translate_excl(e, insn, pc);
+        if (tso) put(e, DMB_ISH);
         return;
     }
     /* CASP on the host address, as the guest wrote it, when its two pairs are guest registers that live
@@ -1164,7 +1172,9 @@ static void translate_mem(Emit *e, uint32_t insn, uint64_t pc) {
         if (rmw) out = (out & ~(0x1fu << 16)) | rs << 16;
         break;
     }
+    if (tso && (op.store || rmw)) put(e, rmw ? DMB_ISH : DMB_ISHST); /* earlier stores (and loads, below) first */
     put(e, out);
+    if (tso && (op.load || rmw)) put(e, rmw ? DMB_ISH : DMB_ISHLD); /* this load before later loads and stores */
 
     if (rmw) {
         if (rs_stolen && op.kind == HV_MEM_CAS) put(e, STR_X(rs, 28, slot_of(op.rs)));

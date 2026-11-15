@@ -6,6 +6,14 @@
 
 struct HvMachine;
 
+/* Apple's x86 memory ordering (TSO) for Rosetta 2. Apple CPUs say they can run with
+   total store ordering in AIDR_EL1 bit 9, and the kernel turns it on for a thread with ACTLR_EL1 bit 1
+   (EnTSO) while that thread runs translated x86 code. Translated EL0 code of such a thread is made in
+   its own HV_BLOCK_TSO form, whose memory accesses keep TSO's order (core/translate.c). */
+#define HV_AIDR_TSO (1ull << 9)
+#define HV_ACTLR_TSO (1ull << 1)
+#define HV_AIDR HV_AIDR_TSO
+
 enum HvHaltReason {
     HV_HALT_NONE, HV_HALT_SHUTDOWN, HV_HALT_RESET, HV_HALT_HOST, HV_HALT_PANIC,
     HV_HALT_SAVE /* stopped to be saved (instant resume): it can run on, or be saved and resumed later */

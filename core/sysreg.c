@@ -125,7 +125,7 @@ static int read_reg(HvCpu *cpu, uint32_t reg, uint64_t *v) {
     case R(3, 3, 0, 0, 1): *v = CTR_EL0; return 0;
     case R(3, 3, 0, 0, 7): *v = 4; return 0;                             /* DCZID: 64-byte DC ZVA */
     case R(3, 1, 0, 0, 1): *v = CLIDR; return 0;
-    case R(3, 1, 0, 0, 7): *v = 0; return 0;                             /* AIDR */
+    case R(3, 1, 0, 0, 7): *v = HV_AIDR; return 0;                       /* AIDR: Apple's TSO bit (see cpu.h) */
     case R(3, 1, 0, 0, 0):                                               /* CCSIDR for CSSELR's level */
         *v = (cpu->csselr_el1 >> 1) == 0 ? (127u << 13 | 7u << 3 | 2) : (2047u << 13 | 15u << 3 | 2);
         return 0;
