@@ -85,7 +85,7 @@ static int read_reg(HvCpu *cpu, uint32_t reg, uint64_t *v) {
     uint64_t now = counter();
     HvMachine *m = cpu->m;
     switch (reg) {
-    case R(3, 3, 4, 2, 0): *v = cpu->nzcv & 0xf0000000; return 0;
+    case R(3, 3, 4, 2, 0): *v = (cpu->nzcv & 0xf0000000) | (hv_apf_on(cpu) ? hv_apf_get(cpu) : 0); return 0;
     case R(3, 3, 4, 2, 1): *v = cpu->daif; return 0;
     case R(3, 0, 4, 2, 2): *v = (uint64_t)cpu->el << 2; return 0;      /* CurrentEL */
     case R(3, 0, 4, 2, 0): *v = cpu->spsel; return 0;
@@ -171,8 +171,16 @@ static int read_reg(HvCpu *cpu, uint32_t reg, uint64_t *v) {
     /* Apple implementation-defined registers (op0 3, CRn 15). The vmapple
        kernel reads error-status registers there (S3_6_C15_C0_0, S3_3_C15_C8_0..)
        when it reports a machine error; zero means no error recorded. */
-    if (reg == R(3, 6, 15, 8, 3) || reg == R(3, 6, 15, 2, 5)) { /* saved and restored around every exception of a */
-        *v = 0;                                                     /* Rosetta thread; nothing kept there here */
+    /* S3_6_C15_C8_3 (APSTATE, xnu's proc_reg.h): bit 1 P and bit 2 A are Apple's x86 flags, which the kernel saves
+       (into the thread's saved state, offset 0x114) when a Rosetta thread enters it and puts back before it returns.
+       Bit 0 (G, guarded execution) is never set here. S3_6_C15_C2_5 (AFPCR, Apple's float modes): nothing kept,
+       FEAT_AFP is offered instead (see cpu.h). */
+    if (reg == R(3, 6, 15, 8, 3)) {
+        *v = hv_apf_get(cpu) >> 25;
+        return 0;
+    }
+    if (reg == R(3, 6, 15, 2, 5)) {
+        *v = 0;
         return 0;
     }
     if ((reg >> 14) == 3 && ((reg >> 7) & 15) == 15) {
@@ -187,7 +195,10 @@ static int read_reg(HvCpu *cpu, uint32_t reg, uint64_t *v) {
 static int write_reg(HvCpu *cpu, uint32_t reg, uint64_t v) {
     HvMachine *m = cpu->m;
     switch (reg) {
-    case R(3, 3, 4, 2, 0): cpu->nzcv = v & 0xf0000000; return 0;
+    case R(3, 3, 4, 2, 0):
+        cpu->nzcv = v & 0xf0000000;
+        if (hv_apf_on(cpu)) hv_apf_set(cpu, v);
+        return 0;
     case R(3, 3, 4, 2, 1): cpu->daif = v & HV_PSTATE_DAIF; return 0;
     case R(3, 0, 4, 2, 0): hv_sp_switch(cpu, cpu->el, v & 1); return 0;
     case R(3, 0, 4, 2, 3): hv_pstate_set(cpu, (hv_pstate_get(cpu) & ~(1ull << 22)) | (v & (1u << 22))); return 0;
@@ -283,7 +294,11 @@ other:
     }
     /* Debug and PMU registers: ignored. */
     if ((reg >> 14) == 2 || (((reg >> 7) & 15) == 9 && (reg >> 14) == 3)) return 0;
-    if (reg == R(3, 6, 15, 8, 3) || reg == R(3, 6, 15, 2, 5)) return 0; /* Rosetta thread state, see read_reg */
+    if (reg == R(3, 6, 15, 8, 3)) { /* Apple's x86 flags, see read_reg */
+        hv_apf_set(cpu, (v & 6) << 25);
+        return 0;
+    }
+    if (reg == R(3, 6, 15, 2, 5)) return 0;
     /* Apple implementation-defined registers (op0 3, CRn 15): ignored, see read_reg. */
     if ((reg >> 14) == 3 && ((reg >> 7) & 15) == 15) {
         if (m->log) fprintf(stderr, "hengevm: write to implementation-defined S3_%u_C15_C%u_%u ignored\n", (reg >> 11) & 7,
